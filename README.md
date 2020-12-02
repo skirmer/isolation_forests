@@ -1,6 +1,5 @@
 # Branching Out into Isolation Forests
 ## Tree Based Anomaly Detection
-## ChiPy Data SIG
 
 Welcome! This repo holds the materials for my upcoming talk at the [ChiPy Data SIG](https://www.meetup.com/_ChiPy_/events/272525624/) on October 21, 2020 and R-Ladies Dallas on December 7, 2020. 
 
