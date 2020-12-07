@@ -21,10 +21,8 @@ knitr::opts_chunk$set(echo = FALSE)
 xaringanExtra::use_panelset()
 
 library(isotree)
-library(outliertree)
 library(plotly)
 library(patchwork)
-
 library(fastshap)
 
 ```
@@ -149,7 +147,7 @@ We don't need to set any outcome or dependent variable because that is not the o
 ```{r, echo=TRUE}
 iso_ext = isolation.forest(
   training_set[, features], 
-  ndim=2,
+  ndim=1,
   ntrees=100,
   max_depth = 6,
   prob_pick_pooled_gain=0,
@@ -168,9 +166,14 @@ test_set$scores <- Z2
 .panel[.panel-name[Fitting Options]
 
 You also have a few options in how you fit the model. You can:
-* return "outlierness" scores for training set  `output_score = TRUE`
-* return pairwise distance between points (eg, difference degree between any two- it takes time to run) `output_dist = TRUE`
+* `output_score = TRUE`
+  - return "outlierness" scores for training set  
+*  `output_dist = TRUE`
+  - return pairwise distance between points (eg, difference degree between any two- it takes time to run)
 * return a model object to be used for predicting on new data (default) 
+
+<img src="../tree_sample.png" alt="diagram2" width="400"/>
+
 ]
 
 .panel[.panel-name[Model Summary Data]
@@ -186,80 +189,37 @@ summary(iso_ext)
 ---
 # Model Tuning
 
-.panelset[
 
-.panel[.panel-name[Tuning Parameters]
 Some of the hyperparameters will be very familiar from other kinds of tree-based models. These are others that might be worth tuning for your modeling.
 
 * `prob_pick_pooled_gain=0,`: higher value fits closer to training set, but risk of overfitting
 * `prob_pick_avg_gain=0,`: higher value is more likely to set outlier bounds outside training set range (less overfitting, but worse training performance)
-* `ndim`: Number of columns to combine to produce a split.
-* `min_gain`: Minimum gain a split needs to produce in order to go ahead. If a split can't give high enough gain, it won't be done, and the node will be a terminal node.
-]
 
-.panel[.panel-name[Demonstrating Tuning]
+When a split is created in tree, it's random by default. These arguments change that, to increase probability of the split giving largest average or pooled gain. If you pass 1 to either, that creates a deterministic tree.
 
-These are examples of the output from returning "outlierness" scores at different parameter settings.
+---
+# "Ghosting" Issue
 
-```{r, echo=FALSE, fig.width=9,dpi = 400, fig.height=5, out.width=650}
+One more hyperparameter to look at: `ndim` indicates number of columns to combine to produce a split
 
+Having multiple clusters of non-anomaly points can create problems when using isolation forests, as shown here. 
+This is the issue that Extended Isolation Forest (ndim > 1) is meant to remedy.
 
-newscores <- function(pppg, ppag){
-  iso_ext2 = isolation.forest(
-    training_set[, features], 
-    ndim=2,
-    ntrees=100,
-    max_depth = 6,
-    prob_pick_pooled_gain=pppg,
-    prob_pick_avg_gain=ppag,
-    output_score = TRUE)
-  
-  return(iso_ext2$scores)
-}
-  
-zero <- newscores(0,0)
-ppag.1 <- newscores(0,.1)
-pppg.1 <- newscores(.1,0)
-ppag.5 <- newscores(0,.5)
-ppag.8 <- newscores(0,.8)
-pppg.5 <- newscores(.5,0)
+```{r, fig.width=9,dpi = 400, fig.height=4, out.width=700, echo=FALSE, message=FALSE, error=FALSE, warning=FALSE}
+source("ghosting_poc.R")
 
-vizlist = data.frame(cbind(zero, ppag.1, pppg.1, ppag.5,ppag.8, pppg.5))
-
-p1 = ggplot(vizlist)+
-  theme_bw()+
-  geom_density(aes(x=zero, color = "Zero"))+
-  geom_density(aes(x=ppag.1, color = ".1"))+
-  geom_density(aes(x=ppag.5, color = ".5"))+
-#  geom_density(aes(x=ppag.8, color = ".8"))+
-  labs(title = "Effect of Parameter Adjustment: prob_pick_avg_gain", x="Outlierness Score", color = "Value")
-
-
-p2 = ggplot(vizlist)+
-  theme_bw()+
-  geom_density(aes(x=zero, color = "Zero"))+
-  geom_density(aes(x=pppg.1, color = ".1"))+
-  geom_density(aes(x=pppg.5, color = ".5"))+
-  labs(title = "Effect of Parameter Adjustment: prob_pick_pooled_gain", x="Outlierness Score", color = "Value")
-
-
-library(patchwork)
-p1 + p2 + plot_layout(ncol = 1)
+p1 + p2 + p3 + plot_layout(ncol=3)
 ```
 
-]
-
-]
 
 ---
 
 # Feature Importance
 ```{r, echo=FALSE, warning=F, error=F, message=F, dpi = 400, fig.height=4}
 
-shapley_values <- explain(iso_ext, X=training_set[, features], pred_wrapper = predict)
+shapley_values <- fastshap::explain(iso_ext, X=training_set[, features], pred_wrapper = predict)
 autoplot(shapley_values)+theme_bw()+labs(title="Feature Importances")
 ```
-
 
 ---
 # Peeking at Results
@@ -362,7 +322,88 @@ fig <- fig %>% layout(scene = list(xaxis = list(title = 'PC2'),
 
 fig %>% layout(autosize = F, margin = m)
 ```
-]]
+]
+
+
+.panel[.panel-name[3D Outliers]
+
+
+```{r, echo=FALSE}
+tpca = trainingpca[, c(1:8)]
+
+m <- list(
+  l = 20,
+  r = 20,
+  b = 0,
+  t = 0,
+  pad = 20
+)
+```
+
+```{r, echo=FALSE, dpi = 400, out.height = 300, out.width=650, warning=F, error=F, message=F}
+
+tpca$anomaly <- as.factor(tpca$anomaly)
+tpca_anom = tpca[tpca$anomaly == 'Anomaly',]
+tpca_anom$labeltext = paste(tpca_anom$name, tpca_anom$artists, tpca_anom$year, sep = "-")
+
+labelers = seq(0, nrow(tpca_anom), length.out = 10)
+
+fig <- plot_ly(tpca_anom, 
+               x = ~PC2, y = ~PC3, z = ~PC1, 
+               color = ~anomaly, 
+               colors = c('#BF382A', '#0C4B8E'), 
+               alpha = .5,
+               width = 600, height = 350)
+fig <- fig %>% add_markers(size= 2)
+#fig <- fig %>% add_text(data = tpca_anom[labelers, ], text = tpca_anom[labelers, 'name'], size = .1, alpha = 1)
+fig <- fig %>% layout(scene = list(xaxis = list(title = 'PC2'),
+                     yaxis = list(title = 'PC3'),
+                     zaxis = list(title = 'PC1')))
+
+fig %>% layout(autosize = F, margin = m)
+```
+]
+
+
+.panel[.panel-name[3D Outliers Named]
+
+
+```{r, echo=FALSE}
+tpca = trainingpca[, c(1:8)]
+
+m <- list(
+  l = 20,
+  r = 20,
+  b = 0,
+  t = 0,
+  pad = 20
+)
+```
+
+```{r, echo=FALSE, dpi = 400, out.height = 300, out.width=650, warning=F, error=F, message=F}
+
+tpca$anomaly <- as.factor(tpca$anomaly)
+tpca_anom = tpca[tpca$anomaly == 'Anomaly',]
+tpca_anom$labeltext = paste(tpca_anom$name, tpca_anom$artists, tpca_anom$year, sep = "-")
+
+labelers = seq(0, nrow(tpca_anom), length.out = 15)
+
+fig <- plot_ly(tpca_anom, 
+               x = ~PC2, y = ~PC3, z = ~PC1, 
+               color = ~anomaly, 
+               width = 600, height = 350)
+fig <- fig %>% add_markers(size= 1, opacity = .2, colors = c('#BF382A', '#0C4B8E'))
+fig <- fig %>% add_markers(data = tpca_anom[labelers, ], x = ~PC2, y = ~PC3, z = ~PC1, alpha = 1, size = 2)
+fig <- fig %>% add_text(data = tpca_anom[labelers, ], text = tpca_anom[labelers, 'name'], size = .1, alpha = 1, textposition = "top right")
+fig <- fig %>% layout(scene = list(xaxis = list(title = 'PC2'),
+                     yaxis = list(title = 'PC3'),
+                     zaxis = list(title = 'PC1')))
+
+fig %>% layout(autosize = F, margin = m)
+```
+]
+
+]
 
 ---
 # Other Exploration
@@ -372,10 +413,12 @@ fig %>% layout(autosize = F, margin = m)
 .panel[.panel-name[Decade Proportions]
 
 ```{r, fig.width=9,dpi = 400, fig.height=5, out.width=700}
-ggplot(training_set, aes(x=as.factor(year_bin),fill = as.factor(anomaly)))+
+
+ggplot(data = training_set, aes(x=as.factor(year_bin),fill = as.factor(anomaly)))+
   theme_bw()+
-  geom_bar()+
-  labs(title="Anomalousness by Decade", x="Decade", y="Records")
+  geom_bar(stat = "count") + 
+  stat_count(geom = "label", size = 3.5, aes(label = ..count..), position=position_stack(vjust=0.5))+
+  labs(title="Anomalousness by Decade", x="Decade", y="Records", fill = "Label")
 ```
 
 ]
@@ -391,8 +434,10 @@ ggplot(training_set, aes(x=scores, y=as.factor(anomaly))) + theme_bw() + geom_bi
 
 https://ggplot2.tidyverse.org/  
 https://plotly.com/r/3d-scatter-plots/   
-https://github.com/david-cortes/isotree   
-https://github.com/david-cortes/outliertree (A different but related algorithm for tree based outlier identification)
+https://github.com/david-cortes/isotree    
+https://github.com/david-cortes/outliertree (A different but related algorithm for tree based outlier identification)  
+https://towardsdatascience.com/outlier-detection-with-extended-isolation-forest-1e248a3fe97b (More on the ghosting problem)   
+https://arxiv.org/pdf/1811.02141.pdf
 
 ---
 # Thank you!
