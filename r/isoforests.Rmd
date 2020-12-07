@@ -21,6 +21,7 @@ knitr::opts_chunk$set(echo = FALSE)
 xaringanExtra::use_panelset()
 
 library(isotree)
+library(outliertree)
 library(plotly)
 library(patchwork)
 
@@ -142,12 +143,14 @@ test_set <- dataset[-train_ind, c('artists','name','year', 'year_bin', features)
 
 We don't need to set any outcome or dependent variable because that is not the objective of this algorithm.
 
+.panelset[
+.panel[.panel-name[Calling Function]
+
 ```{r, echo=TRUE}
 iso_ext = isolation.forest(
   training_set[, features], 
   ndim=2,
   ntrees=100,
-  nthreads=1,
   max_depth = 6,
   prob_pick_pooled_gain=0,
   prob_pick_avg_gain=0,
@@ -159,6 +162,94 @@ Z2 <- predict(iso_ext, test_set)
 training_set$scores <- Z1
 test_set$scores <- Z2
 ```
+]
+
+
+.panel[.panel-name[Fitting Options]
+
+You also have a few options in how you fit the model. You can:
+* return "outlierness" scores for training set  `output_score = TRUE`
+* return pairwise distance between points (eg, difference degree between any two- it takes time to run) `output_dist = TRUE`
+* return a model object to be used for predicting on new data (default) 
+]
+
+.panel[.panel-name[Model Summary Data]
+
+These are examples of the available output from returning a model object.
+
+```{r, echo=TRUE}
+summary(iso_ext)
+```
+]]
+
+
+---
+# Model Tuning
+
+.panelset[
+
+.panel[.panel-name[Tuning Parameters]
+Some of the hyperparameters will be very familiar from other kinds of tree-based models. These are others that might be worth tuning for your modeling.
+
+* `prob_pick_pooled_gain=0,`: higher value fits closer to training set, but risk of overfitting
+* `prob_pick_avg_gain=0,`: higher value is more likely to set outlier bounds outside training set range (less overfitting, but worse training performance)
+* `ndim`: Number of columns to combine to produce a split.
+* `min_gain`: Minimum gain a split needs to produce in order to go ahead. If a split can't give high enough gain, it won't be done, and the node will be a terminal node.
+]
+
+.panel[.panel-name[Demonstrating Tuning]
+
+These are examples of the output from returning "outlierness" scores at different parameter settings.
+
+```{r, echo=FALSE, fig.width=9,dpi = 400, fig.height=5, out.width=650}
+
+
+newscores <- function(pppg, ppag){
+  iso_ext2 = isolation.forest(
+    training_set[, features], 
+    ndim=2,
+    ntrees=100,
+    max_depth = 6,
+    prob_pick_pooled_gain=pppg,
+    prob_pick_avg_gain=ppag,
+    output_score = TRUE)
+  
+  return(iso_ext2$scores)
+}
+  
+zero <- newscores(0,0)
+ppag.1 <- newscores(0,.1)
+pppg.1 <- newscores(.1,0)
+ppag.5 <- newscores(0,.5)
+ppag.8 <- newscores(0,.8)
+pppg.5 <- newscores(.5,0)
+
+vizlist = data.frame(cbind(zero, ppag.1, pppg.1, ppag.5,ppag.8, pppg.5))
+
+p1 = ggplot(vizlist)+
+  theme_bw()+
+  geom_density(aes(x=zero, color = "Zero"))+
+  geom_density(aes(x=ppag.1, color = ".1"))+
+  geom_density(aes(x=ppag.5, color = ".5"))+
+#  geom_density(aes(x=ppag.8, color = ".8"))+
+  labs(title = "Effect of Parameter Adjustment: prob_pick_avg_gain", x="Outlierness Score", color = "Value")
+
+
+p2 = ggplot(vizlist)+
+  theme_bw()+
+  geom_density(aes(x=zero, color = "Zero"))+
+  geom_density(aes(x=pppg.1, color = ".1"))+
+  geom_density(aes(x=pppg.5, color = ".5"))+
+  labs(title = "Effect of Parameter Adjustment: prob_pick_pooled_gain", x="Outlierness Score", color = "Value")
+
+
+library(patchwork)
+p1 + p2 + plot_layout(ncol = 1)
+```
+
+]
+
+]
 
 ---
 
@@ -301,6 +392,7 @@ ggplot(training_set, aes(x=scores, y=as.factor(anomaly))) + theme_bw() + geom_bi
 https://ggplot2.tidyverse.org/  
 https://plotly.com/r/3d-scatter-plots/   
 https://github.com/david-cortes/isotree   
+https://github.com/david-cortes/outliertree (A different but related algorithm for tree based outlier identification)
 
 ---
 # Thank you!
